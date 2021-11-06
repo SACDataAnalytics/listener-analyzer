@@ -19,6 +19,7 @@ import listener_analyzer as la
 
 MOCK_FOLLOWERS_FILENAME = 'mock_followers.json'
 MOCK_USER_INFO_FILENAME = 'mock_user_info.json'
+RS_SETTINGS_FILENAME = 'res_settings.json'
 
 MOCK_PDS = {}
 MOCK_FOLLOWERS = {}
@@ -33,6 +34,9 @@ Image.new('RGBA', (1500, 500), (0, 0, 100, 127)).save(MOCK_PROF_IO, 'png')
 PICKLE_IO = io.BytesIO()
 
 THREAD_NUM = os.cpu_count()
+
+KEY_SCREEN_NAME = 'screen_name'
+KEY_FOLLOWERS = 'followers'
 
 @pytest.fixture()
 def mock_args(mocker, pytestconfig):
@@ -49,46 +53,48 @@ def mock_args(mocker, pytestconfig):
 	args.immediate = pytestconfig.getoption('immediate')
 	args.mockf = pytestconfig.getoption('mockf')
 	args.verbose = pytestconfig.getoption('vb')
-	args.resume = pytestconfig.getoption('resume')
 	args.fdir = pytestconfig.getoption('fdir')
 	args.save_df = pytestconfig.getoption('save_df')
 	args.reuse_result = pytestconfig.getoption('reuse_result')
 	return args
 
-def set_mock_followers(members, num, n_range):
+def set_mock_followers(ids, num, n_range):
 	global MOCK_FOLLOWERS
 	
-	for member in members:
-		print('start set mock followers:' + member)
-		MOCK_FOLLOWERS[member] = [index for index in random.sample(list(range(n_range)), num)]
-		print('end set mock followers:' + member)
+	for id in ids:
+		name = MOCK_FOLLOWERS[id][KEY_SCREEN_NAME]
+		print('start set mock followers:' + name)
+		MOCK_FOLLOWERS[id].update({KEY_FOLLOWERS:[index for index in random.sample(list(range(n_range)), num)]})
+		print('end set mock followers:' + name)
 
-def set_mock_members(members):
+def set_mock_members(ids):
 	global MOCK_PDS
 	
-	for member in members:
-		print('start set mock members:' + member)
+	for id in ids:
+		name = MOCK_FOLLOWERS[id][KEY_SCREEN_NAME]
+		print('start set mock members:' + name)
 		MOCK_PDS[member] = pd.DataFrame(columns=[la.Cols.FOLLOWERED, la.Cols.COLLECT_DATE])
 		try:
-			MOCK_PDS[member] = MOCK_PDS[member].append(
-				pd.DataFrame([[1, time.time()] for f in MOCK_FOLLOWERS[member]], index=MOCK_FOLLOWERS[member],
+			MOCK_PDS[name] = MOCK_PDS[name].append(
+				pd.DataFrame([[1, time.time()] for f in MOCK_FOLLOWERS[id][KEY_FOLLOWERS]], index=MOCK_FOLLOWERS[id][KEY_FOLLOWERS],
 					columns=[la.Cols.FOLLOWERED, la.Cols.COLLECT_DATE]))
 		except:
-			print('cannot append member:' + member)
+			print('cannot append member:' + name)
 		else:
-			print('end set mock members:' + member)
+			print('end set mock members:' + name)
 
-def read_followers(fdir, members):
+def read_followers(fdir, ids):
 	global MOCK_FOLLOWERS
 	
-	for member in members:
-		f_path = pathlib.Path(fdir) / (member + '.csv')
+	for id in ids:
+		name = MOCK_FOLLOWERS[id][KEY_SCREEN_NAME]
+		f_path = pathlib.Path(fdir) / (name + '.csv')
 		if f_path.is_file():
-			print('read followers start:' + member)
-			MOCK_FOLLOWERS.update({member:list(pd.read_csv(f_path, sep=',', index_col=0)	\
+			print('read followers start:' + name)
+			MOCK_FOLLOWERS[id].update({KEY_FOLLOWERS:list(pd.read_csv(f_path, sep=',', index_col=0)	\
 							.astype({la.Cols.FOLLOWERED:'int8', la.Cols.COLLECT_DATE:'int8'})	\
 							.filter(items=[la.Cols.FOLLOWERED], axis=1).index)})
-			print('read followers end:' + member)
+			print('read followers end:' + name)
 
 def thread_start(ths):
 	[th.start() for th in ths]
@@ -112,8 +118,8 @@ def test_flow(mocker, mock_args, pytestconfig, monkeypatch, capfd):
 	
 	MOCK_FOLLOWERS = json.load(open(MOCK_FOLLOWERS_FILENAME, 'r', encoding=la.FILE_ENCODING))
 	MOCK_USER_INFO = json.load(open(MOCK_USER_INFO_FILENAME, 'r', encoding=la.FILE_ENCODING))
-	members = [member['screen_name'] for member in MOCK_FOLLOWERS.values()]
-	divs = [(len(members) + i) // THREAD_NUM for i in reversed(range(THREAD_NUM))]
+	ids = list(MOCK_FOLLOWERS.keys())
+	divs = [(len(ids) + i) // THREAD_NUM for i in reversed(range(THREAD_NUM))]
 	
 	fdir = mock_args.fdir
 	if fdir is not None and os.path.isdir(fdir):
@@ -121,7 +127,7 @@ def test_flow(mocker, mock_args, pytestconfig, monkeypatch, capfd):
 		ths = []
 		for div in divs:
 			ths.append(threading.Thread(target=read_followers,	\
-				args=(fdir, members[start_index:start_index + div],), daemon=True))
+				args=(fdir, ids[start_index:start_index + div],), daemon=True))
 			start_index += div
 		thread_start(ths)
 	
@@ -135,7 +141,7 @@ def test_flow(mocker, mock_args, pytestconfig, monkeypatch, capfd):
 				ths = []
 				for div in divs:
 					ths.append(threading.Thread(target=set_mock_followers,	\
-						args=(members[start_index:start_index + div], int(mockf[0]), int(math.ceil(int(mockf[0]) * float(mockf[1]))),), daemon=True))
+						args=(ids[start_index:start_index + div], int(mockf[0]), int(math.ceil(int(mockf[0]) * float(mockf[1]))),), daemon=True))
 					start_index += div
 				thread_start(ths)
 		
@@ -144,7 +150,7 @@ def test_flow(mocker, mock_args, pytestconfig, monkeypatch, capfd):
 			ths = []
 			for div in divs:
 				ths.append(threading.Thread(target=set_mock_members,	\
-					args=(members[start_index:start_index + div],), daemon=True))
+					args=(ids[start_index:start_index + div],), daemon=True))
 				start_index += div
 			thread_start(ths)
 	except KeyboardInterrupt:
@@ -163,6 +169,9 @@ def test_flow(mocker, mock_args, pytestconfig, monkeypatch, capfd):
 	if not mock_args.actual:
 		with open(la.DEFAULT_SETTINGS_PATH, 'r', encoding=la.FILE_ENCODING) as f:
 			MockOpen.data.update({la.DEFAULT_SETTINGS_PATH:f.read()})
+		if os.path.isfile(RS_SETTINGS_FILENAME):
+			with open(RS_SETTINGS_FILENAME, 'r', encoding=la.FILE_ENCODING) as f:
+				MockOpen.data.update({RS_SETTINGS_FILENAME:f.read()})
 		pickle.dump(MockCredentials(), PICKLE_IO)
 		mocker.patch('builtins.open', MockOpen)
 		monkeypatch.setattr('subprocess.Popen', MockProcess)
@@ -244,19 +253,19 @@ class MockIterator:
 	MAX_NUM = 5000
 	def __init__(self, id, current_cursor):
 		self.id = str(id)
-		page_num = int(math.ceil(len(MOCK_FOLLOWERS[self.id]['followers']) / MockIterator.MAX_NUM))
+		page_num = int(math.ceil(len(MOCK_FOLLOWERS[self.id][KEY_FOLLOWERS]) / MockIterator.MAX_NUM))
 		self.start_index = 0 if -1 == current_cursor	\
 			else current_cursor * MockIterator.MAX_NUM if 0 < current_cursor and current_cursor < page_num	\
 			else None
 		
 		self.next_cursor = 0
-		if len(MOCK_FOLLOWERS[self.id]['followers']) > MockIterator.MAX_NUM:
+		if len(MOCK_FOLLOWERS[self.id][KEY_FOLLOWERS]) > MockIterator.MAX_NUM:
 			self.next_cursor = 1 if -1 == current_cursor	\
 			else current_cursor + 1 if 0 < current_cursor and current_cursor + 1 < page_num	\
 			else self.next_cursor
 	
 	def next(self):
-		return MOCK_FOLLOWERS[self.id]['followers'][self.start_index:self.start_index + MockIterator.MAX_NUM]	\
+		return MOCK_FOLLOWERS[self.id][KEY_FOLLOWERS][self.start_index:self.start_index + MockIterator.MAX_NUM]	\
 			if self.start_index is not None else []
 
 class MockResource:
@@ -335,7 +344,9 @@ class MockOpen:
 		self.path = str(path)
 		self.read = self.mock_read
 		self.readline = True
-		MockOpen.data.update({self.path:PICKLE_IO.getvalue()}) if self.path.endswith('.pickle') else None
+		if not self.path in MockOpen.data.keys():
+			MockOpen.data.update({self.path:PICKLE_IO.getvalue()}) if self.path.endswith('.pickle') else	\
+			MockOpen.data.update({self.path:'{}'}) if self.path.endswith('.json') else None
 	
 	def __enter__(self):
 		return self

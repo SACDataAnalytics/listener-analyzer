@@ -13,7 +13,6 @@ def pytest_addoption(parser):
 	parser.addoption('--immediate', action='store_true')
 	parser.addoption('--mockf', nargs=2)
 	parser.addoption('--vb', type=strtobool, default=True)
-	parser.addoption('--resume', action='store_true')
 	parser.addoption('--fdir')
 	parser.addoption('--save_df', action='store_true')
 	parser.addoption('--reuse_result', action='store_true')
