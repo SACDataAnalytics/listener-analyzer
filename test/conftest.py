@@ -16,3 +16,4 @@ def pytest_addoption(parser):
 	parser.addoption('--fdir')
 	parser.addoption('--save_df', action='store_true')
 	parser.addoption('--reuse_result', action='store_true')
+	parser.addoption('--update_st', action='store_true')

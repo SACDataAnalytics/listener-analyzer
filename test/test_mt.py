@@ -11,6 +11,7 @@ import json
 import random
 import pandas as pd
 
+from queue import Queue
 from PIL import Image
 
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
@@ -37,6 +38,8 @@ THREAD_NUM = os.cpu_count()
 
 KEY_SCREEN_NAME = 'screen_name'
 KEY_FOLLOWERS = 'followers'
+KEY_TARGET = 'target'
+KEY_STR = 'str'
 
 @pytest.fixture()
 def mock_args(mocker, pytestconfig):
@@ -56,6 +59,7 @@ def mock_args(mocker, pytestconfig):
 	args.fdir = pytestconfig.getoption('fdir')
 	args.save_df = pytestconfig.getoption('save_df')
 	args.reuse_result = pytestconfig.getoption('reuse_result')
+	args.update_st = pytestconfig.getoption('update_st')
 	return args
 
 def set_mock_followers(ids, num, n_range):
@@ -73,7 +77,7 @@ def set_mock_members(ids):
 	for id in ids:
 		name = MOCK_FOLLOWERS[id][KEY_SCREEN_NAME]
 		print('start set mock members:' + name)
-		MOCK_PDS[member] = pd.DataFrame(columns=[la.Cols.FOLLOWERED, la.Cols.COLLECT_DATE])
+		MOCK_PDS[name] = pd.DataFrame(columns=[la.Cols.FOLLOWERED, la.Cols.COLLECT_DATE])
 		try:
 			MOCK_PDS[name] = MOCK_PDS[name].append(
 				pd.DataFrame([[1, time.time()] for f in MOCK_FOLLOWERS[id][KEY_FOLLOWERS]], index=MOCK_FOLLOWERS[id][KEY_FOLLOWERS],
@@ -165,6 +169,8 @@ def test_flow(mocker, mock_args, pytestconfig, monkeypatch, capfd):
 	mocker.patch('oauth2client.client.Storage.get', return_value=MockStorage())
 	mocker.patch('google_auth_oauthlib.flow.InstalledAppFlow.from_client_secrets_file', return_value=MockCredentials())
 	mocker.patch('requests.Session.request', side_effect=MockRequest().mock_session_request)
+	mocker.patch('schedule.every', return_value=MockSchedule())
+	mocker.patch('schedule.get_jobs', side_effect=MockDoFunc.mock_get_jobs)
 	
 	if not mock_args.actual:
 		with open(la.DEFAULT_SETTINGS_PATH, 'r', encoding=la.FILE_ENCODING) as f:
@@ -203,6 +209,90 @@ def test_flow(mocker, mock_args, pytestconfig, monkeypatch, capfd):
 	
 	assert expected_result == out
 
+class MockSchedule:
+	def __init__(self):
+		self.hour = self
+		self.day = self
+		self.monday = self
+		self.tuesday = self
+		self.wednesday = self
+		self.thursday = self
+		self.friday = self
+		self.saturday = self
+		self.sunday = self
+	
+	def at(self, *args):
+		return self
+	
+	def do(self, function, *args):
+		return MockDoFunc(function, *args)
+
+class MockDoFunc:
+	DO_STR = 'y'
+	jobs = []
+	submitted = []
+	
+	def __init__(self, function, *args):
+		self.handler = InputHandler.new()
+		self.function = function
+		self.args = args
+		self.name = None
+	
+	def tag(self, name):
+		if self.name is None:
+			self.name = name
+			MockDoFunc.jobs.append(name) if not self.name in MockDoFunc.jobs else None
+			if not self.name in MockDoFunc.submitted:
+				MockDoFunc.submitted.append(self.name)
+				self.submit_function()
+	
+	def input_handler(self, i_str):
+		if MockDoFunc.DO_STR == i_str:
+			self.function(*(self.args))
+			while self.name in MockDoFunc.submitted:
+				MockDoFunc.submitted.remove(self.name)
+			self.name = None
+		else:
+			self.submit_function()
+	
+	def submit_function(self):
+		self.handler.submit_function(self.input_handler, i_str='input "' + MockDoFunc.DO_STR + '" to do "' + self.name + '" func:')
+	
+	def mock_get_jobs(name):
+		return [n for n in MockDoFunc.jobs if n == name]
+
+class InputHandler:
+	DEFAULT_STR = 'input:'
+	handler = None
+	
+	def __init__(self):
+		self.ev_que = Queue()
+		self.functions = []
+	
+	def new():
+		with threading.Lock():
+			if InputHandler.handler is None:
+				InputHandler.handler = InputHandler()
+				threading.Thread(target=InputHandler.handler.check_input, daemon=True).start()
+		return InputHandler.handler
+	
+	def submit_function(self, function, i_str=None, top=False):
+		f_dict = {KEY_TARGET:function}
+		f_dict.update({KEY_STR:i_str}) if i_str is not None else None
+		with threading.Lock():
+			self.functions.append(f_dict) if not top else self.functions.insert(0, f_dict)
+			self.ev_que.put(None)
+	
+	def check_input(self):
+		while True:
+			self.ev_que.get()
+			function = None
+			with threading.Lock():
+				if 0 < len(self.functions):
+					function = self.functions.pop(0)
+			if function is None or not KEY_TARGET in function or not callable(function[KEY_TARGET]):
+				continue
+			function[KEY_TARGET](input(function[KEY_STR] if KEY_STR in function and isinstance(function[KEY_STR], str) else InputHandler.DEFAULT_STR))
 
 class MockTweepyAPI:
 	followers_ids = ''
