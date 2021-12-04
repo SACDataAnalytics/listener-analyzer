@@ -36,7 +36,7 @@ PICKLE_IO = io.BytesIO()
 
 THREAD_NUM = os.cpu_count()
 
-KEY_SCREEN_NAME = 'screen_name'
+KEY_NAME = 'name'
 KEY_FOLLOWERS = 'followers'
 KEY_TARGET = 'target'
 KEY_STR = 'str'
@@ -45,28 +45,29 @@ KEY_STR = 'str'
 def mock_args(mocker, pytestconfig):
 	args = mocker.Mock()
 	args.settings = la.DEFAULT_SETTINGS_PATH
-	args.actual = pytestconfig.getoption('actual')
-	args.update = pytestconfig.getoption('update')
-	args.collect = pytestconfig.getoption('collect')
-	args.analyze = pytestconfig.getoption('analyze')
-	args.post = pytestconfig.getoption('post')
-	args.upload = pytestconfig.getoption('upload')
-	args.public = pytestconfig.getoption('public')
-	args.backup = pytestconfig.getoption('backup')
-	args.immediate = pytestconfig.getoption('immediate')
-	args.mockf = pytestconfig.getoption('mockf')
+	args.flow = pytestconfig.getoption('f')
+	args.actual = pytestconfig.getoption('act')
+	args.update = pytestconfig.getoption('u')
+	args.collect = pytestconfig.getoption('c')
+	args.analyze = pytestconfig.getoption('a')
+	args.post = pytestconfig.getoption('p')
+	args.upload = pytestconfig.getoption('ul')
+	args.public = pytestconfig.getoption('pub')
+	args.backup = pytestconfig.getoption('b')
+	args.immediate = pytestconfig.getoption('i')
+	args.mockf = pytestconfig.getoption('mf')
 	args.verbose = pytestconfig.getoption('vb')
-	args.fdir = pytestconfig.getoption('fdir')
-	args.save_df = pytestconfig.getoption('save_df')
-	args.reuse_result = pytestconfig.getoption('reuse_result')
-	args.update_st = pytestconfig.getoption('update_st')
+	args.fdir = pytestconfig.getoption('fd')
+	args.save_df = pytestconfig.getoption('sd')
+	args.reuse_result = pytestconfig.getoption('rr')
+	args.update_st = pytestconfig.getoption('us')
 	return args
 
 def set_mock_followers(ids, num, n_range):
 	global MOCK_FOLLOWERS
 	
 	for id in ids:
-		name = MOCK_FOLLOWERS[id][KEY_SCREEN_NAME]
+		name = MOCK_FOLLOWERS[id][KEY_NAME]
 		print('start set mock followers:' + name)
 		MOCK_FOLLOWERS[id].update({KEY_FOLLOWERS:[index for index in random.sample(list(range(n_range)), num)]})
 		print('end set mock followers:' + name)
@@ -75,7 +76,7 @@ def set_mock_members(ids):
 	global MOCK_PDS
 	
 	for id in ids:
-		name = MOCK_FOLLOWERS[id][KEY_SCREEN_NAME]
+		name = MOCK_FOLLOWERS[id][KEY_NAME]
 		print('start set mock members:' + name)
 		MOCK_PDS[name] = pd.DataFrame(columns=[la.Cols.FOLLOWERED, la.Cols.COLLECT_DATE])
 		try:
@@ -91,7 +92,7 @@ def read_followers(fdir, ids):
 	global MOCK_FOLLOWERS
 	
 	for id in ids:
-		name = MOCK_FOLLOWERS[id][KEY_SCREEN_NAME]
+		name = MOCK_FOLLOWERS[id][KEY_NAME]
 		f_path = pathlib.Path(fdir) / (name + '.csv')
 		if f_path.is_file():
 			print('read followers start:' + name)
@@ -112,12 +113,12 @@ def thread_start(ths):
 				break
 
 @pytest.mark.freeze_time('2021-04-23 11:22:33')
-def test_flow(mocker, mock_args, pytestconfig, monkeypatch, capfd):
+def test_flow(mocker, mock_args, monkeypatch, capfd):
 	global MOCK_FOLLOWERS
 	global MOCK_USER_INFO
 	
 	expected_result = None
-	with open(pytestconfig.getoption('flow'), encoding='utf-8') as f:
+	with open(mock_args.flow, encoding='utf-8') as f:
 		expected_result = f.read()
 	
 	MOCK_FOLLOWERS = json.load(open(MOCK_FOLLOWERS_FILENAME, 'r', encoding=la.FILE_ENCODING))
@@ -187,6 +188,8 @@ def test_flow(mocker, mock_args, pytestconfig, monkeypatch, capfd):
 		mocker.patch('pathlib.Path.iterdir', return_value=[])
 		mocker.patch('os.remove', return_value=None)
 		mocker.patch('os.makedirs', return_value=None)
+		mocker.patch('os.fspath', side_effect=lambda a: str(a))
+		mocker.patch('os.path.isfile', return_value=True)
 		mocker.patch('shutil.copy2', return_value=None)
 		mocker.patch('shutil.rmtree', return_value=None)
 		mocker.patch('pandas.read_csv', side_effect=mock_pandas_read_csv)
@@ -470,13 +473,9 @@ class MockProcess:
 		self.stderr = MockOpen('Process')
 	
 	def communicate(self):
-		if la.DOCKER_CMD == self.cmd[0]:
-			return b'mock_id', b''
-		if la.Cloud.EXEC_CMD == self.cmd[0]:
-			return b'mock_upload', b''
 		if 'ffmpeg' in self.cmd[0]:
 			return b'ffmpeg', b'Duration: 00:00:01.000'
-		return b'', b''
+		return str(self.cmd).encode(), b''
 	
 	def terminate(self):
 		pass
